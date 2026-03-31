@@ -1,0 +1,85 @@
+import numpy as np
+import matplotlib.pyplot as plt
+def M(t):
+    return 50 * np.exp(-0.1 * t) + 5 * np.sin(t)
+
+def dM_dt_exact(t):
+    return -5 * np.exp(-0.1 * t) + 5 * np.cos(t)
+
+def central_diff(f, x, h):
+    return (f(x + h) - f(x - h)) / (2 * h)
+
+t0 = 1.0
+
+# --- КРОК 1: Точне значення похідної ---
+exact_val = dM_dt_exact(t0)
+print("=== Крок 1: Аналітичне розв'язання ===")
+print(f"Точне значення похідної y'(x0): {exact_val:.10f}")
+
+# --- КРОК 2: Дослідження похибки та пошук оптимального кроку h0 ---
+
+hs = np.logspace(-16, 0, base=10, num=200)
+errors = []
+valid_hs = []
+
+for h_val in hs:
+    diff_val = central_diff(M, t0, h_val)
+    if not np.isnan(diff_val) and not np.isinf(diff_val):
+        valid_hs.append(h_val)
+        errors.append(np.abs(diff_val - exact_val))
+
+min_idx = np.argmin(errors)
+h0 = valid_hs[min_idx]
+R0 = errors[min_idx]
+
+print("\n=== Крок 2: Дослідження оптимального кроку h0 ===")
+print(f"Оптимальний крок h0: {h0:.2e}")
+print(f"Мінімальна похибка R0: {R0:.10e}")
+
+plt.figure(figsize=(10, 6))
+plt.loglog(valid_hs, errors, marker='.', linestyle='-', color='b', label='Загальна похибка')
+plt.loglog(h0, R0, 'ro', label=f'Оптимальний крок h0 ≈ {h0:.1e}')
+plt.xlabel('Крок h (логарифмічна шкала)', fontsize=12)
+plt.ylabel('Абсолютна похибка (логарифмічна шкала)', fontsize=12)
+plt.title('Залежність похибки чисельного диференціювання від кроку h', fontsize=14)
+plt.grid(True, which="both", ls="--")
+plt.legend(fontsize=12)
+plt.show() 
+
+# --- КРОК 3, 4, 5: Обчислення з фіксованим кроком h = 10^-3 ---
+h = 1e-3
+y_prime_h = central_diff(M, t0, h)
+y_prime_2h = central_diff(M, t0, 2 * h)
+
+R1 = np.abs(y_prime_h - exact_val)
+
+print("\n=== Крок 3, 4, 5: Обчислення з h = 1e-3 ===")
+print(f"Похідна y'0(h):  {y_prime_h:.10f}")
+print(f"Похідна y'0(2h): {y_prime_2h:.10f}")
+print(f"Похибка R1:      {R1:.10e}")
+
+# --- КРОК 6: Метод Рунге-Ромберга ---
+y_prime_R = y_prime_h + (y_prime_h - y_prime_2h) / 3
+R2 = np.abs(y_prime_R - exact_val)
+
+print("\n=== Крок 6: Метод Рунге-Ромберга ===")
+print(f"Уточнене значення y'_R: {y_prime_R:.10f}")
+print(f"Похибка R2:             {R2:.10e}")
+print(f"Покращення точності: похибка зменшилась у {R1/R2:.2f} разів")
+
+# --- КРОК 7: Метод Ейткена ---
+y_prime_4h = central_diff(M, t0, 4 * h)
+
+# Формула Ейткена
+numerator = y_prime_2h**2 - y_prime_4h * y_prime_h
+denominator = 2 * y_prime_2h - (y_prime_4h + y_prime_h)
+y_prime_E = numerator / denominator
+
+p = (1 / np.log(2)) * np.log(np.abs((y_prime_4h - y_prime_2h) / (y_prime_2h - y_prime_h)))
+R3 = np.abs(y_prime_E - exact_val)
+
+print("\n=== Крок 7: Метод Ейткена ===")
+print(f"Похідна y'0(4h):          {y_prime_4h:.10f}")
+print(f"Уточнене значення y'_E:   {y_prime_E:.10f}")
+print(f"Похибка R3:               {R3:.10e}")
+print(f"Оцінка порядку точності p: {p:.4f}")
