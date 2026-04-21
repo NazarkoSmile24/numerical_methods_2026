@@ -1,0 +1,274 @@
+import numpy as np
+
+
+
+# #1. Матриця A, точного розв'язку X та вектора B
+
+def generate_system(n=100, x_value=2.5, seed=42):
+    rng = np.random.default_rng(seed)
+
+    # випадкова матрицю
+    A = rng.uniform(-10, 10, size=(n, n))
+
+    # матриця діагонально переважаюча, щоб забезпечити стабільність LU-розкладу
+    # для стабільності і щоб не було нульових елементів
+    for i in range(n):
+        A[i, i] += np.sum(np.abs(A[i])) + 1.0
+
+    x_exact = np.full(n, x_value)
+
+    # вектор вільних членів B = A * X
+    B = A @ x_exact
+
+    return A, x_exact, B
+
+
+def write_matrix(filename, matrix):
+    np.savetxt(filename, matrix, fmt="%.15e")
+
+
+def write_vector(filename, vector):
+    np.savetxt(filename, vector.reshape(-1, 1), fmt="%.15e")
+
+
+
+# #2. Зчитування A і B, LU-розклад, запис LU у файл,
+#     розв'язання AX = B, множення матриці на вектор,
+#     обчислення норми вектора
+
+def read_matrix(filename):
+    return np.loadtxt(filename)
+
+
+def read_vector(filename):
+    return np.loadtxt(filename)
+
+
+def lu_decomposition(A):
+    """
+    LU-розклад у формі A = L * U,
+    де L — нижня трикутна,
+    U — верхня трикутна з одиницями на діагоналі.
+    """
+    n = A.shape[0]
+    L = np.zeros((n, n), dtype=float)
+    U = np.zeros((n, n), dtype=float)
+
+    for i in range(n):
+        U[i, i] = 1.0
+
+    for k in range(n):
+        # обчислення елементів k-го стовпця L
+        for i in range(k, n):
+            s = 0.0
+            for j in range(k):
+                s += L[i, j] * U[j, k]
+            L[i, k] = A[i, k] - s
+
+        if abs(L[k, k]) < 1e-18:
+            raise ValueError(
+                f"Неможливо виконати LU-розклад: L[{k},{k}] = 0 або дуже близьке до нуля."
+            )
+
+        # обчислення елементів k-го рядка U
+        for i in range(k + 1, n):
+            s = 0.0
+            for j in range(k):
+                s += L[k, j] * U[j, i]
+            U[k, i] = (A[k, i] - s) / L[k, k]
+
+    return L, U
+
+
+def write_lu(filename, L, U):
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write("Матриця L:\n")
+        np.savetxt(f, L, fmt="%.15e")
+        f.write("\nМатриця U:\n")
+        np.savetxt(f, U, fmt="%.15e")
+
+
+def forward_substitution(L, b):
+    """розв'язання Lz = b."""
+    n = L.shape[0]
+    z = np.zeros(n, dtype=float)
+
+    for i in range(n):
+        s = 0.0
+        for j in range(i):
+            s += L[i, j] * z[j]
+        z[i] = (b[i] - s) / L[i, i]
+
+    return z
+
+
+def backward_substitution_unit_upper(U, z):
+    """
+    розв'язання Ux = z,
+    де U — верхня трикутна матриця з одиницями на діагоналі.
+    """
+    n = U.shape[0]
+    x = np.zeros(n, dtype=float)
+
+    for i in range(n - 1, -1, -1):
+        s = 0.0
+        for j in range(i + 1, n):
+            s += U[i, j] * x[j]
+        x[i] = z[i] - s
+
+    return x
+
+
+def solve_lu(L, U, b):
+    z = forward_substitution(L, b)
+    x = backward_substitution_unit_upper(U, z)
+    return x
+
+
+def matrix_vector_product(A, x):
+    return A @ x
+
+
+def vector_norm_inf(v):
+    """норма максимуму."""
+    return np.max(np.abs(v))
+
+
+
+# #3. Розв'язання системи лінійних алгебраїчних рівнянь AX = B
+#     за допомогою LU-розкладу
+
+def solve_system_from_files(matrix_file="A.txt", vector_file="B.txt", lu_file="LU.txt"):
+    A = read_matrix(matrix_file)
+    B = read_vector(vector_file)
+
+    L, U = lu_decomposition(A)
+    write_lu(lu_file, L, U)
+
+    X = solve_lu(L, U, B)
+    return A, B, L, U, X
+
+
+
+# #4. Оцінка точності знайденого розв'язку
+#     eps = max_i |sum_j(a_ij * x_j) - b_i|
+
+def residual_max(A, x, b):
+    r = A @ x - b
+    return np.max(np.abs(r)), r
+
+
+
+# #5. Ітераційний метод уточнення розв'язку
+
+def iterative_refinement(A, B, L, U, x0, eps0=1e-14, max_iter=50):
+    x = x0.copy()
+    history = []
+
+    for iteration in range(1, max_iter + 1):
+        # R = B - A * X^(0)
+        R = B - A @ x
+
+        # розв'язуємо A * ΔX = R через вже знайдений LU-розклад
+        dX = solve_lu(L, U, R)
+
+        # уточнений розв'язок
+        x_new = x + dX
+
+        # перевірка умов закінчення
+        norm_dx = vector_norm_inf(dX)
+        norm_res = vector_norm_inf(A @ x_new - B)
+
+        history.append((iteration, norm_dx, norm_res))
+
+        x = x_new
+
+        if norm_dx <= eps0 and norm_res <= eps0:
+            break
+
+    return x, history
+
+
+
+# #6. Основна програма
+
+def main():
+    n = 100
+    x_value = 2.5
+    eps0 = 1e-14
+
+    matrix_file = "A.txt"
+    vector_file = "B.txt"
+    lu_file = "LU.txt"
+    solution_file = "X_found.txt"
+    refined_solution_file = "X_refined.txt"
+    report_file = "results.txt"
+
+    # #1 Генеруємо A, X_exact, B та записуємо A і B у текстові файли
+    A_generated, X_exact, B_generated = generate_system(n=n, x_value=x_value)
+    write_matrix(matrix_file, A_generated)
+    write_vector(vector_file, B_generated)
+
+    print(f"#1 Виконано: матрицю A записано у файл {matrix_file}")
+    print(f"#1 Виконано: вектор B записано у файл {vector_file}")
+
+    # #2 і #3 Зчитуємо дані, знаходимо LU-розклад і розв'язок
+    A, B, L, U, X_found = solve_system_from_files(matrix_file, vector_file, lu_file)
+    write_vector(solution_file, X_found)
+
+    print(f"#2 Виконано: LU-розклад записано у файл {lu_file}")
+    print(f"#3 Виконано: знайдений розв'язок записано у файл {solution_file}")
+
+    # #4 Оцінка точності знайденого розв'язку
+    eps, residual = residual_max(A, X_found, B)
+    print(f"#4 Максимальна нев'язка eps = {eps:.15e}")
+
+    # #5 Ітераційне уточнення розв'язку
+    X_refined, history = iterative_refinement(A, B, L, U, X_found, eps0=eps0)
+    write_vector(refined_solution_file, X_refined)
+
+    final_eps, final_residual = residual_max(A, X_refined, B)
+    diff_from_exact = vector_norm_inf(X_refined - X_exact)
+
+    print(f"#5 Уточнений розв'язок записано у файл {refined_solution_file}")
+    print(f"#5 Кількість ітерацій уточнення: {len(history)}")
+    print(f"#5 Остаточна нев'язка = {final_eps:.15e}")
+    print(f"#5 ||X_refined - X_exact||_∞ = {diff_from_exact:.15e}")
+
+    # #6 Формування короткого текстового звіту з результатами
+    with open(report_file, "w", encoding="utf-8") as f:
+        f.write("Лабораторна робота №6\n")
+        f.write("Розв'язання СЛАР за допомогою LU-розкладу та ітераційного уточнення\n\n")
+
+        f.write("#1 Генерація системи\n")
+        f.write(f"Розмірність матриці: n = {n}\n")
+        f.write(f"Точний розв'язок: x_i = {x_value}\n")
+        f.write(f"Файли: {matrix_file}, {vector_file}\n\n")
+
+        f.write("#2 LU-розклад\n")
+        f.write(f"LU-розклад записано у файл: {lu_file}\n\n")
+
+        f.write("#3 Розв'язання системи AX = B\n")
+        f.write(f"Початковий знайдений розв'язок записано у файл: {solution_file}\n\n")
+
+        f.write("#4 Оцінка точності\n")
+        f.write(f"Максимальна нев'язка eps = {eps:.15e}\n\n")
+
+        f.write("#5 Ітераційне уточнення\n")
+        f.write(f"Задана точність eps0 = {eps0:.1e}\n")
+        f.write(f"Кількість ітерацій: {len(history)}\n")
+        for iteration, norm_dx, norm_res in history:
+            f.write(
+                f"Ітерація {iteration}: "
+                f"||ΔX||_∞ = {norm_dx:.15e}, "
+                f"||AX - B||_∞ = {norm_res:.15e}\n"
+            )
+        f.write(f"\nУточнений розв'язок записано у файл: {refined_solution_file}\n")
+        f.write(f"Остаточна нев'язка = {final_eps:.15e}\n")
+        f.write(f"||X_refined - X_exact||_∞ = {diff_from_exact:.15e}\n")
+
+    print(f"#6 Короткий звіт записано у файл {report_file}")
+
+
+if __name__ == "__main__":
+    main()
