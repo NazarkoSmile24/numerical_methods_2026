@@ -1,0 +1,119 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import quad
+
+# 1. Задана функція
+def f(x):
+    return 50 + 20 * np.sin(np.pi * x / 12) + 5 * np.exp(-0.2 * (x - 12)**2)
+
+a, b = 0, 24
+
+
+I_0, _ = quad(f, a, b, epsabs=1e-14)
+print(f" Точне значення інтегралу I_0: {I_0}")
+
+def simpson(f, a, b, N):
+    if N % 2 != 0:
+        N += 1
+    h = (b - a) / N
+    x = np.linspace(a, b, N + 1)
+    y = f(x)
+    # Формула Сімпсона: h/3 * (f_0 + 4*sum(f_odd) + 2*sum(f_even) + f_N)
+    I = (h / 3) * (y[0] + 4 * np.sum(y[1:-1:2]) + 2 * np.sum(y[2:-2:2]) + y[-1])
+    return I
+
+# 4. Дослідження залежності точності від N та пошук N_opt
+Ns = np.arange(10, 1002, 2)
+errors = [abs(simpson(f, a, b, n) - I_0) for n in Ns]
+
+target_eps = 1e-12
+N_opt = next((n for n, err in zip(Ns, errors) if err <= target_eps), Ns[-1])
+eps_opt = abs(simpson(f, a, b, N_opt) - I_0)
+
+print(f"\n N_opt для досягнення точності 1e-12: {N_opt}")
+print(f"   Отримана точність (eps_opt): {eps_opt}")
+
+# 5. Обчислення похибки при N_0 (N_opt / 10, кратне 8)
+N_0_base = int(N_opt / 10)
+N_0 = N_0_base + (8 - N_0_base % 8) if N_0_base % 8 != 0 else N_0_base
+if N_0 == 0: 
+    N_0 = 8
+
+I_N0 = simpson(f, a, b, N_0)
+eps_0 = abs(I_N0 - I_0)
+print(f"\n Обране N_0 (кратне 8): {N_0}")
+print(f"   Похибка при N_0 (eps_0): {eps_0}")
+
+# 6. Уточнення значення за методом Рунге-Ромберга
+I_N0_2 = simpson(f, a, b, int(N_0 / 2))
+I_R = I_N0 + (I_N0 - I_N0_2) / 15
+eps_R = abs(I_R - I_0)
+print(f"\n Значення за Рунге-Ромбергом I_R: {I_R}")
+print(f"   Похибка (eps_R): {eps_R}")
+
+# 7. Уточнення значення за методом Ейткена та обчислення порядку методу
+I_N0_4 = simpson(f, a, b, int(N_0 / 4))
+numerator = I_N0_2**2 - I_N0 * I_N0_4
+denominator = 2 * I_N0_2 - (I_N0 + I_N0_4)
+
+if denominator != 0:
+    I_E = numerator / denominator
+    eps_E = abs(I_E - I_0)
+    # Оцінка порядку точності
+    val = abs((I_N0_4 - I_N0_2) / (I_N0_2 - I_N0))
+    p = (1 / np.log(2)) * np.log(val) if val > 0 else 0
+    print(f"\n Значення за Ейткеном I_E: {I_E}")
+    print(f"   Похибка (eps_E): {eps_E}")
+    print(f"   Оцінений порядок методу p: {p}")
+else:
+    print(" Метод Ейткена: ділення на нуль.")
+
+# 9. Адаптивний алгоритм зі змінним кроком
+def adaptive_simpson(f, a, b, tol, evals=0):
+    h = b - a
+    m = (a + b) / 2
+    m1 = (a + m) / 2
+    m2 = (m + b) / 2
+    I1 = (h / 6) * (f(a) + 4 * f(m) + f(b))
+    I2 = (h / 12) * (f(a) + 4 * f(m1) + 2 * f(m) + 4 * f(m2) + f(b))
+    
+    evals += 5 
+    
+    # Оцінка умови збіжності
+    if abs(I1 - I2) <= tol:
+        return I2, evals
+    else:
+        left_I, evals_l = adaptive_simpson(f, a, m, tol, 0)
+        right_I, evals_r = adaptive_simpson(f, m, b, tol, 0)
+        return left_I + right_I, evals + evals_l + evals_r
+
+tol_adaptive = 1e-8
+I_adapt, eval_count = adaptive_simpson(f, a, b, tol_adaptive)
+eps_adapt = abs(I_adapt - I_0)
+
+print(f"\n Адаптивний алгоритм (tol = {tol_adaptive}):")
+print(f"   Обчислене значення: {I_adapt}")
+print(f"   Кількість викликів підінтегральної функції: {eval_count}")
+print(f"   Отримана похибка: {eps_adapt}")
+
+
+# Побудова графіка залежності похибки від N
+plt.figure(figsize=(10, 6))
+plt.plot(Ns, errors, label='Похибка eps(N)')
+plt.yscale('log')
+plt.axhline(1e-12, color='r', linestyle='--', label='Задана точність 1e-12')
+plt.title('Залежність похибки інтегрування від кількості розбиттів N')
+plt.xlabel('Кількість розбиттів N')
+plt.ylabel('Похибка eps(N)')
+
+x = np.linspace(0, 24, 1000)
+y = f(x)
+# Побудова графіка
+plt.figure(figsize=(10, 6))
+plt.plot(x, y, label=r'$f(x)=50+20\sin\left(\frac{\pi x}{12}\right)+5e^{-0.2(x-12)^2}$')
+plt.title('Графік функції навантаження на сервер')
+plt.xlabel('Час, x (год)')
+plt.ylabel('Навантаження, f(x)')
+plt.grid(True)
+plt.legend()
+plt.show()
